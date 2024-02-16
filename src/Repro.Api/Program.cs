@@ -2,7 +2,6 @@ using Marten;
 using Marten.Events.Projections;
 using Oakton;
 using Repro.Api.Domain;
-using Repro.Api.Domain.Events;
 using Weasel.Core;
 using Wolverine;
 using Wolverine.Http;
@@ -34,7 +33,6 @@ public class Program
                 opts.AutoCreateSchemaObjects = AutoCreate.All;
             }
 
-            opts.Projections.Snapshot<Todo>(SnapshotLifecycle.Inline, p => p.DeleteEvent<TodoDeleted>());
         });
 
         marten.UseLightweightSessions();
