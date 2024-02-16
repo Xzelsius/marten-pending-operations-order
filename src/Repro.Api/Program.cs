@@ -33,6 +33,9 @@ public class Program
                 opts.AutoCreateSchemaObjects = AutoCreate.All;
             }
 
+            opts.Projections.Snapshot<RoleAssignment>(SnapshotLifecycle.Inline, p => p.DeleteEvent<RoleAssignmentDeleted>());
+            opts.Projections.Add<RoleAssignmentQueryProjection>(ProjectionLifecycle.Inline);
+            opts.Projections.Add<RoleAssignmentSecurityQueryProjection>(ProjectionLifecycle.Inline);
         });
 
         marten.UseLightweightSessions();

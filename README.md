@@ -1,4 +1,4 @@
-# Wolverine Repro Template
+# Pending Changes Order Issue
 
 ## Setup
 
@@ -11,7 +11,13 @@ docker run --name wolverine-repro -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD
 
 ## Reproduction Steps
 
-TBD
+1. Start PostgreSQL container using command from Setup section
+2. Start application (either by debugging or dotnet run)
+3. Create Role Assignment with 1 user and inheritance `true`
+4. Update Role Assignment with 5 users and inheritance `true`
+
+Step 4 will fail because the order of the queued statements has changed.
+But it is crucial that the delete statement runs first before trying to insert data.
 
 ## Teardown
 
