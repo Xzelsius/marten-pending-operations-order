@@ -1,3 +1,5 @@
+using SqlKata;
+
 namespace Repro.Api.Domain;
 
 using System.Text.Json;
@@ -35,18 +37,21 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
 
     public void Project(IEvent<RoleAssignmentCreated> e, IDocumentOperations ops)
     {
-        CreatePermissions(ops, e.Data.RoleAssignmentId, e.Data.RoleIds, e.Data.GroupIds, e.Data.UserIds, e.Data.OrganizationalUnitId, e.Data.AllowInheritance);
+        CreatePermissions(ops, e.Data.RoleAssignmentId, e.Data.RoleIds, e.Data.GroupIds, e.Data.UserIds, e.Data.OrganizationalUnitId, e.Data.AllowInheritance, false);
     }
 
     public void Project(IEvent<RoleAssignmentUpdated> e, IDocumentOperations ops)
     {
-        DeletePermissions(ops, e.Data.RoleAssignmentId);
-        CreatePermissions(ops, e.Data.RoleAssignmentId, e.Data.RoleIds, e.Data.GroupIds, e.Data.UserIds, e.Data.OrganizationalUnitId, e.Data.AllowInheritance);
+        CreatePermissions(ops, e.Data.RoleAssignmentId, e.Data.RoleIds, e.Data.GroupIds, e.Data.UserIds, e.Data.OrganizationalUnitId, e.Data.AllowInheritance, true);
     }
 
     public void Project(IEvent<RoleAssignmentDeleted> e, IDocumentOperations ops)
     {
-        DeletePermissions(ops, e.Data.RoleAssignmentId);
+        ops.QueueStatement(
+            tableIdentifier,
+            statement => statement
+                .AsDelete()
+                .Where(new { role_assignment_id = e.Data.RoleAssignmentId }));
     }
 
     private static List<Guid> CreateUserIdList(IDocumentOperations ops, IEnumerable<Guid> groupIds, IEnumerable<Guid> userIds)
@@ -69,7 +74,7 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
         return allUsersIds.Distinct().ToList();
     }
 
-    private void InsertPermissions(IDocumentOperations ops, Guid roleAssignmentId, List<Guid> userIds, Guid organizationalUnitId, string organizationalUnitPath, IEnumerable<ResourcePermission> permissions)
+    private void InsertPermissions(List<Action<Query>> statements, Guid roleAssignmentId, List<Guid> userIds, Guid organizationalUnitId, string organizationalUnitPath, IEnumerable<ResourcePermission> permissions)
     {
         foreach (var userId in userIds)
         {
@@ -77,32 +82,31 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
             {
                 foreach (var action in permission.Actions)
                 {
-                    ops.QueueSqlCommand(
-                        $"""
-                         insert into {tableIdentifier} (id, role_assignment_id, user_id, organizational_unit_id, organizational_unit_path, action, permission)
-                         values (?, ?, ?, ?, ?, ?, ?)
-                         """,
-                        Guid.NewGuid(),
-                        roleAssignmentId,
-                        userId,
-                        organizationalUnitId,
-                        organizationalUnitPath,
-                        action,
-                        JsonSerializer.Serialize(permission));
+                    statements.Add(statement => statement
+                        .AsInsert(new
+                        {
+                            id = Guid.NewGuid(),
+                            role_assignment_id = roleAssignmentId,
+                            user_id = userId,
+                            organizational_unit_id = organizationalUnitId,
+                            organizational_unit_path = organizationalUnitPath,
+                            action = action,
+                            permission = JsonSerializer.Serialize(permission)
+                        }));
                 }
             }
         }
     }
 
-    private void InsertChildPermissions(IDocumentOperations ops, Guid roleAssignmentId, List<Guid> userIds, Guid parentId, string parentPath, IEnumerable<ResourcePermission> permissions)
+    private void InsertChildPermissions(List<Action<Query>> statements, Guid roleAssignmentId, List<Guid> userIds, Guid parentId, string parentPath, IEnumerable<ResourcePermission> permissions)
     {
         // Note: Work in progress. We need to add the child permissions to the role assignment as well.
         var childOuIds = RelatedDataProvider.GetChildOus(parentId);
         foreach (var childOuId in childOuIds)
         {
             var childOuPath = $"{parentPath}/{childOuId}";
-            InsertPermissions(ops, roleAssignmentId, userIds, childOuId, childOuPath, permissions);
-            InsertChildPermissions(ops, roleAssignmentId, userIds, childOuId, childOuPath, permissions);
+            InsertPermissions(statements, roleAssignmentId, userIds, childOuId, childOuPath, permissions);
+            InsertChildPermissions(statements, roleAssignmentId, userIds, childOuId, childOuPath, permissions);
         }
     }
 
@@ -113,8 +117,16 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
         IEnumerable<Guid> groupIds,
         IEnumerable<Guid> userIds,
         Guid organizationalUnitId,
-        bool allowInheritance)
+        bool allowInheritance,
+        bool clearExisting)
     {
+        var statements = new List<Action<Query>>();
+
+        if (clearExisting)
+        {
+            statements.Add(statement => statement.AsDelete().Where(new { role_assignment_id = roleAssignmentId }));
+        }
+
         var ouPath = RelatedDataProvider.GetOuPath(organizationalUnitId) ?? string.Empty;
 
         foreach (var roleId in roleIds)
@@ -126,18 +138,15 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
             var role = RelatedDataProvider.GetRole(roleId);
             if (role is not null)
             {
-                InsertPermissions(ops, roleAssignmentId, userIdList, organizationalUnitId, ouPath, role.Permissions);
+                InsertPermissions(statements, roleAssignmentId, userIdList, organizationalUnitId, ouPath, role.Permissions);
 
                 if (allowInheritance)
                 {
-                    InsertChildPermissions(ops, roleAssignmentId, userIdList, organizationalUnitId, ouPath, role.Permissions);
+                    InsertChildPermissions(statements, roleAssignmentId, userIdList, organizationalUnitId, ouPath, role.Permissions);
                 }
             }
         }
-    }
 
-    private void DeletePermissions(IDocumentOperations ops, Guid roleAssignmentId)
-    {
-        ops.QueueSqlCommand($"delete from {tableIdentifier} where role_assignment_id = ?", roleAssignmentId);
+        ops.QueueCombinedStatements(tableIdentifier.ToString(), statements.ToArray());
     }
 }

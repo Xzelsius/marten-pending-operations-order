@@ -1,3 +1,5 @@
+using SqlKata;
+
 namespace Repro.Api.Domain;
 
 using Marten;
@@ -76,9 +78,9 @@ public sealed class RoleAssignmentQueryProjection : EventProjection
                     allow_inheritance = e.Data.AllowInheritance,
                 }));
 
-        InsertUsers(e.Data.UserIds, e.Data.RoleAssignmentId, ops);
-        InsertGroups(e.Data.GroupIds, e.Data.RoleAssignmentId, ops);
-        InsertRoles(e.Data.RoleIds, e.Data.RoleAssignmentId, ops);
+        InsertUsers(e.Data.UserIds, e.Data.RoleAssignmentId, false, ops);
+        InsertGroups(e.Data.GroupIds, e.Data.RoleAssignmentId, false, ops);
+        InsertRoles(e.Data.RoleIds, e.Data.RoleAssignmentId, false, ops);
     }
 
     public void Project(IEvent<RoleAssignmentUpdated> e, IDocumentOperations ops)
@@ -93,14 +95,9 @@ public sealed class RoleAssignmentQueryProjection : EventProjection
                 })
                 .Where(new { id = e.Data.RoleAssignmentId, }));
 
-        DeleteUsers(e.Data.RoleAssignmentId, ops);
-        InsertUsers(e.Data.UserIds, e.Data.RoleAssignmentId, ops);
-
-        DeleteGroups(e.Data.RoleAssignmentId, ops);
-        InsertGroups(e.Data.GroupIds, e.Data.RoleAssignmentId, ops);
-
-        DeleteRoles(e.Data.RoleAssignmentId, ops);
-        InsertRoles(e.Data.RoleIds, e.Data.RoleAssignmentId, ops);
+        InsertUsers(e.Data.UserIds, e.Data.RoleAssignmentId, true, ops);
+        InsertGroups(e.Data.GroupIds, e.Data.RoleAssignmentId, true, ops);
+        InsertRoles(e.Data.RoleIds, e.Data.RoleAssignmentId, true,ops);
     }
 
     public void Project(IEvent<RoleAssignmentDeleted> e, IDocumentOperations ops)
@@ -112,75 +109,72 @@ public sealed class RoleAssignmentQueryProjection : EventProjection
                 .Where(new { id = e.Data.RoleAssignmentId }));
     }
 
-    private void InsertUsers(IEnumerable<Guid> userIds, Guid roleAssignmentId, IDocumentOperations ops)
+    private void InsertUsers(IEnumerable<Guid> userIds, Guid roleAssignmentId, bool clearExisting, IDocumentOperations ops)
     {
-        foreach (var userId in userIds)
+        var statements = new List<Action<Query>>();
+
+        if (clearExisting)
         {
-            ops.QueueStatement(
-                userTableIdenfitier,
-                statement => statement
-                    .AsInsert(new
-                    {
-                        role_assignment_id = roleAssignmentId,
-                        user_id = userId,
-                    }));
+            statements.Add(statement => statement.AsDelete().Where(new { role_assignment_id = roleAssignmentId }));
+        }
+
+        statements.AddRange(userIds.Select(InsertUser));
+
+        ops.QueueCombinedStatements(userTableIdenfitier.ToString(), statements.ToArray());
+
+        Action<Query> InsertUser(Guid userId)
+        {
+            return statement => statement.AsInsert(new
+            {
+                role_assignment_id = roleAssignmentId,
+                user_id = userId,
+            });
         }
     }
 
-    private void DeleteUsers(Guid roleAssignmentId, IDocumentOperations ops)
+    private void InsertGroups(IEnumerable<Guid> groupIds, Guid roleAssignmentId, bool clearExisting, IDocumentOperations ops)
     {
-        ops.QueueStatement(
-            userTableIdenfitier,
-            statement => statement
-                .AsDelete()
-                .Where(new { role_assignment_id = roleAssignmentId }));
-    }
+        var statements = new List<Action<Query>>();
 
-    private void InsertGroups(IEnumerable<Guid> groupIds, Guid roleAssignmentId, IDocumentOperations ops)
-    {
-        foreach (var groupId in groupIds)
+        if (clearExisting)
         {
-            ops.QueueStatement(
-                groupTableIdenfitier,
-                statement => statement
-                    .AsInsert(new
-                    {
-                        role_assignment_id = roleAssignmentId,
-                        group_id = groupId,
-                    }));
+            statements.Add(statement => statement.AsDelete().Where(new { role_assignment_id = roleAssignmentId }));
+        }
+
+        statements.AddRange(groupIds.Select(InsertGroup));
+
+        ops.QueueCombinedStatements(groupTableIdenfitier.ToString(), statements.ToArray());
+
+        Action<Query> InsertGroup(Guid groupId)
+        {
+            return statement => statement.AsInsert(new
+            {
+                role_assignment_id = roleAssignmentId,
+                group_id = groupId,
+            });
         }
     }
 
-    private void DeleteGroups(Guid roleAssignmentId, IDocumentOperations ops)
+    private void InsertRoles(IEnumerable<Guid> roleIds, Guid roleAssignmentId, bool clearExisting, IDocumentOperations ops)
     {
-        ops.QueueStatement(
-            groupTableIdenfitier,
-            statement => statement
-                .AsDelete()
-                .Where(new { role_assignment_id = roleAssignmentId }));
-    }
+        var statements = new List<Action<Query>>();
 
-    private void InsertRoles(IEnumerable<Guid> roleIds, Guid roleAssignmentId, IDocumentOperations ops)
-    {
-        foreach (var roleId in roleIds)
+        if (clearExisting)
         {
-            ops.QueueStatement(
-                roleTableIdenfitier,
-                statement => statement
-                    .AsInsert(new
-                    {
-                        role_assignment_id = roleAssignmentId,
-                        role_id = roleId,
-                    }));
+            statements.Add(statement => statement.AsDelete().Where(new { role_assignment_id = roleAssignmentId }));
         }
-    }
 
-    private void DeleteRoles(Guid roleAssignmentId, IDocumentOperations ops)
-    {
-        ops.QueueStatement(
-            roleTableIdenfitier,
-            statement => statement
-                .AsDelete()
-                .Where(new { role_assignment_id = roleAssignmentId }));
+        statements.AddRange(roleIds.Select(InsertRole));
+
+        ops.QueueCombinedStatements(roleTableIdenfitier.ToString(), statements.ToArray());
+
+        Action<Query> InsertRole(Guid roleId)
+        {
+            return statement => statement.AsInsert(new
+            {
+                role_assignment_id = roleAssignmentId,
+                role_id = roleId,
+            });
+        }
     }
 }
