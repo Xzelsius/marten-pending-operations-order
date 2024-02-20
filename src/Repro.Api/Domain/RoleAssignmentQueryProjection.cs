@@ -12,8 +12,9 @@ public sealed class RoleAssignmentQueryProjection : EventProjection
     private readonly DbObjectName userTableIdenfitier;
     private readonly DbObjectName groupTableIdenfitier;
     private readonly DbObjectName roleTableIdenfitier;
+    private readonly ILogger<RoleAssignmentQueryProjection> logger;
 
-    public RoleAssignmentQueryProjection()
+    public RoleAssignmentQueryProjection(ILogger<RoleAssignmentQueryProjection> logger)
     {
         ProjectionName = "RoleAssignmentQueryProjection";
 
@@ -54,6 +55,8 @@ public sealed class RoleAssignmentQueryProjection : EventProjection
         {
             Options.DeleteDataInTableOnTeardown(table.Identifier);
         }
+
+        this.logger = logger;
     }
 
     public static string RoleAssignmentTableName => "mt_tbl_role_assignment";
@@ -66,15 +69,17 @@ public sealed class RoleAssignmentQueryProjection : EventProjection
 
     public void Project(IEvent<RoleAssignmentCreated> e, IDocumentOperations ops)
     {
-        ops.QueueStatement(
-            roleAssignmentTableIdentifier,
-            statement => statement
-                .AsInsert(new
-                {
-                    id = e.Data.RoleAssignmentId,
-                    organizational_unit_id = e.Data.OrganizationalUnitId,
-                    allow_inheritance = e.Data.AllowInheritance,
-                }));
+        logger.LogInformation("Project<RoleAssignmentCreated>()");
+
+        ops.QueueSqlCommand(
+            $"""
+            insert into {roleAssignmentTableIdentifier} (id, organizational_unit_id, allow_inheritance)
+            values (?, ?, ?)
+            """,
+            e.Data.RoleAssignmentId,
+            e.Data.OrganizationalUnitId,
+            e.Data.AllowInheritance
+            );
 
         InsertUsers(e.Data.UserIds, e.Data.RoleAssignmentId, ops);
         InsertGroups(e.Data.GroupIds, e.Data.RoleAssignmentId, ops);
@@ -83,15 +88,18 @@ public sealed class RoleAssignmentQueryProjection : EventProjection
 
     public void Project(IEvent<RoleAssignmentUpdated> e, IDocumentOperations ops)
     {
-        ops.QueueStatement(
-            roleAssignmentTableIdentifier,
-            statement => statement
-                .AsUpdate(new
-                {
-                    organizational_unit_id = e.Data.OrganizationalUnitId,
-                    allow_inheritance = e.Data.AllowInheritance,
-                })
-                .Where(new { id = e.Data.RoleAssignmentId, }));
+        logger.LogInformation("Project<RoleAssignmentUpdated>()");
+
+        ops.QueueSqlCommand(
+            $"""
+            update {roleAssignmentTableIdentifier} SET
+                organizational_unit_id = ?,
+                allow_inheritance = ?
+            where id = ?
+            """,
+            e.Data.OrganizationalUnitId,
+            e.Data.AllowInheritance,
+            e.Data.RoleAssignmentId);
 
         DeleteUsers(e.Data.RoleAssignmentId, ops);
         InsertUsers(e.Data.UserIds, e.Data.RoleAssignmentId, ops);
@@ -105,82 +113,93 @@ public sealed class RoleAssignmentQueryProjection : EventProjection
 
     public void Project(IEvent<RoleAssignmentDeleted> e, IDocumentOperations ops)
     {
-        ops.QueueStatement(
-            roleAssignmentTableIdentifier,
-            statement => statement
-                .AsDelete()
-                .Where(new { id = e.Data.RoleAssignmentId }));
+        logger.LogInformation("Project<RoleAssignmentDeleted>()");
+
+        ops.QueueSqlCommand(
+            $"""
+            delete from {roleAssignmentTableIdentifier} where id = ?
+            """,
+            e.Data.RoleAssignmentId);
     }
 
     private void InsertUsers(IEnumerable<Guid> userIds, Guid roleAssignmentId, IDocumentOperations ops)
     {
+        logger.LogInformation($"InsertUsers() for {roleAssignmentId} and {userIds.Count()} user(s)");
+
         foreach (var userId in userIds)
         {
-            ops.QueueStatement(
-                userTableIdenfitier,
-                statement => statement
-                    .AsInsert(new
-                    {
-                        role_assignment_id = roleAssignmentId,
-                        user_id = userId,
-                    }));
+            ops.QueueSqlCommand(
+                $"""
+                insert into {userTableIdenfitier} (role_assignment_id, user_id)
+                values (?, ?)
+                """,
+                roleAssignmentId,
+                userId);
         }
     }
 
     private void DeleteUsers(Guid roleAssignmentId, IDocumentOperations ops)
     {
-        ops.QueueStatement(
-            userTableIdenfitier,
-            statement => statement
-                .AsDelete()
-                .Where(new { role_assignment_id = roleAssignmentId }));
+        logger.LogInformation($"DeleteUsers() for {roleAssignmentId}");
+
+        ops.QueueSqlCommand(
+            $"""
+            delete from {userTableIdenfitier} where role_assignment_id = ?
+            """,
+            roleAssignmentId);
     }
 
     private void InsertGroups(IEnumerable<Guid> groupIds, Guid roleAssignmentId, IDocumentOperations ops)
     {
+        logger.LogInformation($"InsertGroups() for {roleAssignmentId} and {groupIds.Count()} group(s)");
+
         foreach (var groupId in groupIds)
         {
-            ops.QueueStatement(
-                groupTableIdenfitier,
-                statement => statement
-                    .AsInsert(new
-                    {
-                        role_assignment_id = roleAssignmentId,
-                        group_id = groupId,
-                    }));
+            ops.QueueSqlCommand(
+                $"""
+                insert into {groupTableIdenfitier} (role_assignment_id, group_id)
+                values (?, ?)
+                """,
+                roleAssignmentId,
+                groupId);
         }
     }
 
     private void DeleteGroups(Guid roleAssignmentId, IDocumentOperations ops)
     {
-        ops.QueueStatement(
-            groupTableIdenfitier,
-            statement => statement
-                .AsDelete()
-                .Where(new { role_assignment_id = roleAssignmentId }));
+        logger.LogInformation($"DeleteGroups() for {roleAssignmentId}");
+
+        ops.QueueSqlCommand(
+            $"""
+            delete from {groupTableIdenfitier} where role_assignment_id = ?
+            """,
+            roleAssignmentId);
     }
 
     private void InsertRoles(IEnumerable<Guid> roleIds, Guid roleAssignmentId, IDocumentOperations ops)
     {
+        logger.LogInformation($"InsertRoles() for {roleAssignmentId} and {roleIds.Count()} role(s)");
+
         foreach (var roleId in roleIds)
         {
-            ops.QueueStatement(
-                roleTableIdenfitier,
-                statement => statement
-                    .AsInsert(new
-                    {
-                        role_assignment_id = roleAssignmentId,
-                        role_id = roleId,
-                    }));
+            ops.QueueSqlCommand(
+                $"""
+                insert into {roleTableIdenfitier} (role_assignment_id, role_id)
+                values (?, ?)
+                """,
+                roleAssignmentId,
+                roleId);
         }
     }
 
     private void DeleteRoles(Guid roleAssignmentId, IDocumentOperations ops)
     {
-        ops.QueueStatement(
-            roleTableIdenfitier,
-            statement => statement
-                .AsDelete()
-                .Where(new { role_assignment_id = roleAssignmentId }));
+        logger.LogInformation($"DeleteRoles() for {roleAssignmentId}");
+
+        ops.QueueSqlCommand(
+            $"""
+            delete from {roleTableIdenfitier} where role_assignment_id = ?
+            """,
+            roleAssignmentId);
     }
 }

@@ -10,8 +10,9 @@ using Weasel.Postgresql.Tables;
 public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
 {
     private readonly DbObjectName tableIdentifier;
+    private readonly ILogger<RoleAssignmentSecurityQueryProjection> logger;
 
-    public RoleAssignmentSecurityQueryProjection()
+    public RoleAssignmentSecurityQueryProjection(ILogger<RoleAssignmentSecurityQueryProjection> logger)
     {
         ProjectionName = "RoleAssignmentSecurityQueryProjection";
 
@@ -29,28 +30,37 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
         tableIdentifier = table.Identifier;
 
         Options.DeleteDataInTableOnTeardown(table.Identifier);
+        this.logger = logger;
     }
 
     public static string TableName => "mt_tbl_role_assignment_security";
 
     public void Project(IEvent<RoleAssignmentCreated> e, IDocumentOperations ops)
     {
+        logger.LogInformation($"Project<RoleAssignmentCreated>()");
+
         CreatePermissions(ops, e.Data.RoleAssignmentId, e.Data.RoleIds, e.Data.GroupIds, e.Data.UserIds, e.Data.OrganizationalUnitId, e.Data.AllowInheritance);
     }
 
     public void Project(IEvent<RoleAssignmentUpdated> e, IDocumentOperations ops)
     {
+        logger.LogInformation($"Project<RoleAssignmentUpdated>()");
+
         DeletePermissions(ops, e.Data.RoleAssignmentId);
         CreatePermissions(ops, e.Data.RoleAssignmentId, e.Data.RoleIds, e.Data.GroupIds, e.Data.UserIds, e.Data.OrganizationalUnitId, e.Data.AllowInheritance);
     }
 
     public void Project(IEvent<RoleAssignmentDeleted> e, IDocumentOperations ops)
     {
+        logger.LogInformation($"Project<RoleAssignmentDeleted>()");
+
         DeletePermissions(ops, e.Data.RoleAssignmentId);
     }
 
-    private static List<Guid> CreateUserIdList(IDocumentOperations ops, IEnumerable<Guid> groupIds, IEnumerable<Guid> userIds)
+    private List<Guid> CreateUserIdList(IDocumentOperations ops, IEnumerable<Guid> groupIds, IEnumerable<Guid> userIds)
     {
+        logger.LogInformation($"CreateUserIdList()");
+
         var allUsersIds = new List<Guid>();
 
         // Add all the users that are directly assigned to the role.
@@ -65,12 +75,16 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
             // snip, irrelevant for reproduction
         }
 
+        logger.LogInformation($"CreateUserIdList() resulted in {allUsersIds.Count} user ids");
+
         // Remove all duplicate user ids.
         return allUsersIds.Distinct().ToList();
     }
 
     private void InsertPermissions(IDocumentOperations ops, Guid roleAssignmentId, List<Guid> userIds, Guid organizationalUnitId, string organizationalUnitPath, IEnumerable<ResourcePermission> permissions)
     {
+        logger.LogInformation($"InserPermissions() for {roleAssignmentId} and OU {organizationalUnitPath} with {userIds.Count} user(s)");
+
         foreach (var userId in userIds)
         {
             foreach (var permission in permissions)
@@ -96,6 +110,8 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
 
     private void InsertChildPermissions(IDocumentOperations ops, Guid roleAssignmentId, List<Guid> userIds, Guid parentId, string parentPath, IEnumerable<ResourcePermission> permissions)
     {
+        logger.LogInformation($"InsertChildPermissions() for {roleAssignmentId} and OU {parentPath} with {userIds.Count} user(s)");
+
         // Note: Work in progress. We need to add the child permissions to the role assignment as well.
         var childOuIds = RelatedDataProvider.GetChildOus(parentId);
         foreach (var childOuId in childOuIds)
@@ -115,6 +131,8 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
         Guid organizationalUnitId,
         bool allowInheritance)
     {
+        logger.LogInformation($"CreatePermissions() for {roleAssignmentId}");
+
         var ouPath = RelatedDataProvider.GetOuPath(organizationalUnitId) ?? string.Empty;
 
         foreach (var roleId in roleIds)
@@ -138,6 +156,8 @@ public sealed class RoleAssignmentSecurityQueryProjection : EventProjection
 
     private void DeletePermissions(IDocumentOperations ops, Guid roleAssignmentId)
     {
+        logger.LogInformation($"DeletePermissions() for {roleAssignmentId}");
+
         ops.QueueSqlCommand($"delete from {tableIdentifier} where role_assignment_id = ?", roleAssignmentId);
     }
 }

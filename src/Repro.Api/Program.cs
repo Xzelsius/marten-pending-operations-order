@@ -24,6 +24,8 @@ public class Program
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
 
+        var sp = builder.Services.BuildServiceProvider();
+
         var marten = builder.Services.AddMarten(opts =>
         {
             opts.Connection(builder.Configuration.GetConnectionString("Marten")!);
@@ -34,8 +36,8 @@ public class Program
             }
 
             opts.Projections.Snapshot<RoleAssignment>(SnapshotLifecycle.Inline, p => p.DeleteEvent<RoleAssignmentDeleted>());
-            opts.Projections.Add<RoleAssignmentQueryProjection>(ProjectionLifecycle.Inline);
-            opts.Projections.Add<RoleAssignmentSecurityQueryProjection>(ProjectionLifecycle.Inline);
+            opts.Projections.Add(new RoleAssignmentQueryProjection(sp.GetRequiredService<ILogger<RoleAssignmentQueryProjection>>()), ProjectionLifecycle.Inline);
+            opts.Projections.Add(new RoleAssignmentSecurityQueryProjection(sp.GetRequiredService<ILogger<RoleAssignmentSecurityQueryProjection>>()), ProjectionLifecycle.Inline);
         });
 
         marten.UseLightweightSessions();
