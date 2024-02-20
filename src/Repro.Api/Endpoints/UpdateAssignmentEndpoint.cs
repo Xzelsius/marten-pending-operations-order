@@ -13,10 +13,7 @@ public static class UpdateAssignmentEndpoint
     {
         Guid ouId = RelatedDataProvider.RootOu;
 
-        Guid[] userIds = Enumerable
-            .Range(1, request.AmountOfUsers)
-            .Select(x => Guid.NewGuid())
-            .ToArray();
+        Guid[] userIds = request.UserIds; 
 
         Guid[] groupIds = [];
 
@@ -27,4 +24,4 @@ public static class UpdateAssignmentEndpoint
     }
 }
 
-public record UpdateAssignmentRequest(int AmountOfUsers, bool AllowInheritance);
+public record UpdateAssignmentRequest(Guid[] UserIds, bool AllowInheritance);

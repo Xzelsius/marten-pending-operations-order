@@ -7,14 +7,11 @@ using Wolverine.Http;
 public static class CreateAssignmentEndpoint
 {
     [WolverinePost("/create-assignment")]
-    public static Guid Create(CreateAssignmentRequest request, IDocumentSession session)
+    public static CreateAssignmentResponse Create(CreateAssignmentRequest request, IDocumentSession session)
     {
         Guid ouId = RelatedDataProvider.RootOu;
 
-        Guid[] userIds = Enumerable
-            .Range(1, request.AmountOfUsers)
-            .Select(x => Guid.NewGuid())
-            .ToArray();
+        Guid[] userIds = request.UserIds;
 
         Guid[] groupIds = [];
 
@@ -23,8 +20,10 @@ public static class CreateAssignmentEndpoint
         var created = new RoleAssignmentCreated(Guid.NewGuid(), ouId, userIds, groupIds, roleIds, request.AllowInheritance);
         session.Events.StartStream<RoleAssignment>(created.RoleAssignmentId, created);
 
-        return created.RoleAssignmentId;
+        return new CreateAssignmentResponse(created.RoleAssignmentId);
     }
 }
 
-public record CreateAssignmentRequest(int AmountOfUsers, bool AllowInheritance);
+public record CreateAssignmentRequest(Guid[] UserIds, bool AllowInheritance);
+
+public record CreateAssignmentResponse(Guid Id);
